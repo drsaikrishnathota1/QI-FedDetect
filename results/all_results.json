@@ -1,0 +1,54 @@
+{
+  "NSL-KDD": {
+    "QI-FedDetect": {
+      "accuracy_mean": 0.7614,
+      "accuracy_std": 0.0245,
+      "f1_mean": 0.739,
+      "f1_std": 0.034,
+      "detection_rate_mean": 0.6083,
+      "detection_rate_std": 0.0425
+    },
+    "FedAvg": {
+      "accuracy_mean": 0.7433,
+      "accuracy_std": 0.0099,
+      "f1_mean": 0.7136,
+      "f1_std": 0.0142,
+      "detection_rate_mean": 0.0,
+      "detection_rate_std": 0.0
+    },
+    "FedProx": {
+      "accuracy_mean": 0.7348,
+      "accuracy_std": 0.0129,
+      "f1_mean": 0.7008,
+      "f1_std": 0.0194,
+      "detection_rate_mean": 0.0,
+      "detection_rate_std": 0.0
+    }
+  },
+  "CICIDS2017": {
+    "QI-FedDetect": {
+      "accuracy_mean": 0.9997,
+      "accuracy_std": 0.0,
+      "f1_mean": 0.9997,
+      "f1_std": 0.0,
+      "detection_rate_mean": 1.0,
+      "detection_rate_std": 0.0
+    },
+    "FedAvg": {
+      "accuracy_mean": 0.9998,
+      "accuracy_std": 0.0,
+      "f1_mean": 0.9998,
+      "f1_std": 0.0,
+      "detection_rate_mean": 0.0,
+      "detection_rate_std": 0.0
+    },
+    "FedProx": {
+      "accuracy_mean": 0.9998,
+      "accuracy_std": 0.0,
+      "f1_mean": 0.9998,
+      "f1_std": 0.0,
+      "detection_rate_mean": 0.0,
+      "detection_rate_std": 0.0
+    }
+  }
+}
