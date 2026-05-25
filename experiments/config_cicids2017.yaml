@@ -1,0 +1,39 @@
+# QI-FedDetect — CICIDS2017 experiment configuration
+# These are the exact hyperparameters used to produce Table II of the paper.
+
+dataset: cicids2017
+data_path: data/processed/cicids2017/
+
+# Federated setup
+n_clients: 10
+n_byzantine: 2
+byzantine_attack: sign_flip
+dirichlet_alpha: 0.5
+
+# Training
+n_rounds: 50
+local_epochs: 5
+lr: 0.01
+batch_size: 64
+server_lr: 1.0
+
+# FedProx
+fedprox_mu: 0.01
+
+# Byzantine Detection Module
+bdm_alpha: 0.05
+
+# QIFE
+n_qubits: 6
+n_layers: 3
+
+# Model
+num_classes: 7                  # BENIGN + 6 attack categories
+hidden_dim: 128
+
+# Reproducibility
+seeds: [42, 123, 456, 789, 1011]
+
+# Output
+results_dir: results/
+log_dir: results/logs/

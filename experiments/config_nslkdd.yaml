@@ -1,0 +1,39 @@
+# QI-FedDetect — NSL-KDD experiment configuration
+# These are the exact hyperparameters used to produce Table I of the paper.
+
+dataset: nslkdd
+data_path: data/processed/nsl-kdd/
+
+# Federated setup
+n_clients: 10
+n_byzantine: 2                  # clients 8 and 9 are Byzantine
+byzantine_attack: sign_flip     # sign-flip with scale 10
+dirichlet_alpha: 0.5            # non-IID degree
+
+# Training
+n_rounds: 50
+local_epochs: 5
+lr: 0.01
+batch_size: 64
+server_lr: 1.0
+
+# FedProx
+fedprox_mu: 0.01
+
+# Byzantine Detection Module
+bdm_alpha: 0.05                 # one-sided z-test significance level
+
+# QIFE
+n_qubits: 6
+n_layers: 3
+
+# Model
+num_classes: 5                  # normal + 4 attack types
+hidden_dim: 128
+
+# Reproducibility
+seeds: [42, 123, 456, 789, 1011]
+
+# Output
+results_dir: results/
+log_dir: results/logs/
