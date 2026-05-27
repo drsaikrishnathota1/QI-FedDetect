@@ -9,11 +9,11 @@ Implements Theorem 1 from the paper:
     If ||Delta_j - mu_G|| >= kappa > sqrt(4f/n) * delta for all Byzantine j,
     the BDM correctly identifies all Byzantine clients w.p. >= 1 - exp(-C*n).
 
-Reference: QI-FedDetect (Thota, 2025)
+Reference: QI-FedDetect (Thota, 2026)
 """
 
 import numpy as np
-from scipy import stats
+from statistics import NormalDist
 from typing import Dict, List, Tuple
 
 
@@ -40,6 +40,28 @@ def _outer_density_matrix(delta: np.ndarray) -> np.ndarray:
     return np.outer(flat, flat) / norm_sq
 
 
+def _pairwise_topk_projection(
+    delta_i: np.ndarray,
+    delta_j: np.ndarray,
+    k: int = 16,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Project two updates onto their shared top-k high-energy coordinates."""
+    flat_i = delta_i.flatten()
+    flat_j = delta_j.flatten()
+    k = min(k, len(flat_i), len(flat_j))
+    if k <= 0:
+        return np.zeros(1), np.zeros(1)
+
+    energy = np.abs(flat_i) + np.abs(flat_j)
+    if len(energy) > k:
+        idx = np.argpartition(energy, -k)[-k:]
+        idx = idx[np.argsort(idx)]
+    else:
+        idx = np.arange(len(energy))
+
+    return flat_i[idx], flat_j[idx]
+
+
 def qjsd(delta_i: np.ndarray, delta_j: np.ndarray) -> float:
     """
     Quantum Jensen-Shannon Divergence between two gradient updates.
@@ -47,20 +69,22 @@ def qjsd(delta_i: np.ndarray, delta_j: np.ndarray) -> float:
     QJSD(rho_i || rho_j) = S((rho_i + rho_j)/2) - (S(rho_i) + S(rho_j)) / 2
 
     For efficiency, operates on a compressed projection of the updates
-    (top-k PCA directions) rather than the full outer-product matrix.
+    rather than the full outer-product matrix. A cosine direction term is
+    added because pure outer-product density matrices are invariant to a
+    global sign flip, while sign-flip poisoning is explicitly adversarial for
+    gradient aggregation.
 
     Args:
         delta_i, delta_j : 1-D numpy arrays (flattened gradient updates)
     Returns:
-        QJSD value in [0, log(2)]
+        Direction-aware QJSD score, where larger values indicate more
+        divergent update geometry or direction.
     """
-    # Project onto a low-dimensional subspace for tractability
-    k = min(16, len(delta_i))
-    mat = np.stack([delta_i.flatten(), delta_j.flatten()])   # (2, d)
-    # Use SVD-based sketch: keep top-k outer products in the joint subspace
-    U, s, Vt = np.linalg.svd(mat, full_matrices=False)
-    sketch_i = (Vt[:k] * delta_i.flatten()[:k]).flatten()[:k]
-    sketch_j = (Vt[:k] * delta_j.flatten()[:k]).flatten()[:k]
+    # Project onto a shared low-dimensional subspace for tractability. The
+    # previous SVD sketch multiplied arrays with incompatible shapes for real
+    # flattened model updates; a shared top-k coordinate projection keeps the
+    # comparison deterministic and dimensionally valid.
+    sketch_i, sketch_j = _pairwise_topk_projection(delta_i, delta_j, k=16)
 
     rho_i = _outer_density_matrix(sketch_i)
     rho_j = _outer_density_matrix(sketch_j)
@@ -70,7 +94,14 @@ def qjsd(delta_i: np.ndarray, delta_j: np.ndarray) -> float:
     s_i  = _von_neumann_entropy(rho_i)
     s_j  = _von_neumann_entropy(rho_j)
 
-    return max(0.0, s_m - (s_i + s_j) / 2)
+    density_divergence = max(0.0, s_m - (s_i + s_j) / 2)
+
+    denom = (np.linalg.norm(sketch_i) * np.linalg.norm(sketch_j)) + 1e-12
+    cosine = float(np.dot(sketch_i, sketch_j) / denom)
+    cosine = float(np.clip(cosine, -1.0, 1.0))
+    direction_divergence = 0.5 * (1.0 - cosine)
+
+    return density_divergence + direction_divergence
 
 
 def detect_byzantine(
@@ -112,7 +143,7 @@ def detect_byzantine(
         return client_ids, [], score_matrix
 
     z_scores = (mean_scores - mu) / sigma
-    threshold_z = stats.norm.ppf(1 - significance)
+    threshold_z = NormalDist().inv_cdf(1 - significance)
 
     honest_ids    = [client_ids[i] for i in range(n) if z_scores[i] <= threshold_z]
     byzantine_ids = [client_ids[i] for i in range(n) if z_scores[i] >  threshold_z]

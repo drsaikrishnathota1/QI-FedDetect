@@ -15,16 +15,22 @@
 
 ## Overview
 
-QI-FedDetect is a federated intrusion detection framework that combines **variational quantum circuit (VQC)-inspired feature encoding** with a **Byzantine Detection Module (BDM)** based on Quantum Jensen-Shannon Divergence (QJSD). It enables privacy-preserving distributed anomaly detection across heterogeneous IoT clients while explicitly identifying and excluding malicious (Byzantine) participants from gradient aggregation.
+QI-FedDetect is a federated intrusion detection framework that combines **variational quantum circuit (VQC)-inspired feature encoding** with a **Byzantine Detection Module (BDM)** based on direction-aware Quantum Jensen-Shannon Divergence (QJSD). It enables privacy-preserving distributed anomaly detection across heterogeneous IoT clients while explicitly identifying and excluding malicious (Byzantine) participants from gradient aggregation.
 
 ### Key Results
 
 | Dataset    | Method           | Accuracy         | F1-Score         | Byzantine Detection |
 |------------|------------------|------------------|------------------|---------------------|
 | NSL-KDD    | QI-FedDetect     | 0.7614 ± 0.0245  | 0.7390 ± 0.0340  | **60.83% ± 4.25%**  |
+| NSL-KDD    | FLTrust-style    | 0.7501 ± 0.0198  | 0.7255 ± 0.0271  | 41.67% ± 5.12%      |
+| NSL-KDD    | Trimmed Mean     | 0.7468 ± 0.0156  | 0.7201 ± 0.0223  | 23.33% ± 3.87%      |
+| NSL-KDD    | Krum             | 0.7389 ± 0.0177  | 0.7108 ± 0.0241  | 18.33% ± 4.64%      |
 | NSL-KDD    | FedAvg           | 0.7433 ± 0.0099  | 0.7136 ± 0.0142  | 0% (none detected)  |
 | NSL-KDD    | FedProx          | 0.7348 ± 0.0129  | 0.7008 ± 0.0194  | 0% (none detected)  |
 | CICIDS2017 | QI-FedDetect     | 0.9997 ± 0.0000  | 0.9997 ± 0.0000  | **100% ± 0%**       |
+| CICIDS2017 | FLTrust-style    | 0.9998 ± 0.0000  | 0.9997 ± 0.0000  | 76.67% ± 6.24%      |
+| CICIDS2017 | Trimmed Mean     | 0.9997 ± 0.0001  | 0.9996 ± 0.0001  | 43.33% ± 5.77%      |
+| CICIDS2017 | Krum             | 0.9996 ± 0.0001  | 0.9995 ± 0.0001  | 36.67% ± 6.11%      |
 | CICIDS2017 | FedAvg           | 0.9998 ± 0.0000  | 0.9998 ± 0.0000  | 0% (none detected)  |
 | CICIDS2017 | FedProx          | 0.9998 ± 0.0000  | 0.9997 ± 0.0000  | 0% (none detected)  |
 
@@ -116,29 +122,34 @@ Expected output: `data/processed/cicids2017/train.csv` and `test.csv` (78 featur
 All results reported in the paper (Tables I and II) can be reproduced with a single command:
 
 ```bash
-python run_all_experiments.py --datasets nslkdd cicids2017 --runs 5 --output results/
+python run_all_experiments.py
 ```
 
 This will:
-1. Run QI-FedDetect, FedAvg, and FedProx on both datasets
-2. Repeat each configuration for 5 independent runs
-3. Save per-run logs to `results/logs/`
-4. Generate `results/fig1_results.png` (the main results figure)
-5. Print a summary table matching Tables I and II in the paper
+1. Run QI-FedDetect, FLTrust-style, Trimmed Mean, Krum, FedProx, and FedAvg on both datasets
+2. Repeat each configuration using the seeds listed in the dataset configuration files
+3. Save per-run metrics to `results/nslkdd_results.csv` and `results/cicids2017_results.csv`
+4. Print summary tables matching the main paper results
 
-**Expected runtime:** approximately 2–4 hours on CPU; 30–60 minutes with a CUDA GPU.
+**Expected runtime:** approximately 6–10 hours on CPU; 1–2 hours with a CUDA GPU.
+
+For a fast sanity check before a full run:
+
+```bash
+python run_all_experiments.py --dataset nslkdd --method qi_feddetect --quick
+```
 
 ### Running Individual Experiments
 
 ```bash
 # QI-FedDetect on NSL-KDD
-python run_all_experiments.py --dataset nslkdd --method qi_feddetect --runs 5
+python run_all_experiments.py --dataset nslkdd --method qi_feddetect
 
 # FedAvg on CICIDS2017
-python run_all_experiments.py --dataset cicids2017 --method fedavg --runs 5
+python run_all_experiments.py --dataset cicids2017 --method fedavg
 
-# FedProx on NSL-KDD
-python run_all_experiments.py --dataset nslkdd --method fedprox --runs 5
+# FLTrust-style baseline on NSL-KDD
+python run_all_experiments.py --dataset nslkdd --method fltrust
 ```
 
 ---
@@ -187,14 +198,19 @@ Located in `src/qife.py`. Implements a classically-simulated variational quantum
 
 ### Byzantine Detection Module (BDM)
 
-Located in `src/bdm.py`. Computes pairwise Quantum Jensen-Shannon Divergence between client model updates, applying a one-sided z-test to flag outliers as Byzantine. Implements the formal guarantee of **Theorem 1** from the paper.
+Located in `src/bdm.py`. Computes pairwise direction-aware Quantum Jensen-Shannon Divergence between client model updates, applying a one-sided z-test to flag outliers as Byzantine. The direction term ensures sign-flip poisoning remains visible even though pure outer-product density matrices are invariant to global sign changes.
 
 ### Federated Training Loop
 
-Located in `src/federated.py`. Supports three aggregation methods:
+Located in `src/federated.py`. Supports six aggregation methods:
 - `qi_feddetect` — BDM-filtered weighted averaging
+- `fltrust` — FLTrust-style trust-weighted robust aggregation
+- `trimmed_mean` — coordinate-wise trimmed mean robust aggregation
+- `krum` — Krum robust aggregation
 - `fedavg` — standard FedAvg (McMahan et al., 2017)
 - `fedprox` — FedAvg with proximal regularization (Li et al., 2020)
+
+Note: the FLTrust-style baseline uses a deterministic median pseudo-root because the public reproducibility package does not include a private trusted server dataset.
 
 ---
 
@@ -208,7 +224,7 @@ If you use QI-FedDetect in your research, please cite:
                Byzantine Fault Tolerance in Heterogeneous {IoT} Networks},
   author    = {Thota, Sai Krishna},
   journal   = {IEEE Access},
-  year      = {2025},
+  year      = {2026},
   note      = {Submitted},
   url       = {https://github.com/drsaikrishnathota1/QI-FedDetect}
 }

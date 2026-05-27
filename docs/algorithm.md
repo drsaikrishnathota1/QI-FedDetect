@@ -5,6 +5,9 @@ G = {g1, g2, ..., gn}  — local gradients from n clients
 w = {w1, w2, ..., wn}  — client sample weights
 t in (0,1)             — fidelity threshold (default: 0.5)
 k_min                  — minimum honest clients required
+
+The current BDM implementation uses a direction-aware QJSD score so sign-flip
+poisoning remains distinguishable from honest updates.
 ## Complexity Analysis
 
 | Phase | Complexity |
@@ -17,12 +20,15 @@ k_min                  — minimum honest clients required
 
 Communication complexity: O(n x d) — identical to FedAvg, zero overhead.
 
-## Comparison Table
+## Baseline Coverage
 
-| Property | FedAvg | FedProx | QI-FedDetect |
-|----------|--------|---------|--------------|
-| Poisoning defense | No | No | Yes |
-| Communication overhead | O(nd) | O(nd) | O(nd) |
-| Quantum-inspired | No | No | Yes |
-| Military IoT threat model | No | No | Yes |
-| Formal detection guarantee | No | No | Yes |
+The reproducibility runner evaluates QI-FedDetect against five baselines:
+FedAvg, FedProx, Krum, Trimmed Mean, and FLTrust-style trust aggregation.
+
+| Property | FedAvg | FedProx | Krum | Trimmed Mean | FLTrust-style | QI-FedDetect |
+|----------|--------|---------|------|--------------|---------------|--------------|
+| Poisoning defense | No | No | Yes | Yes | Yes | Yes |
+| Communication overhead | O(nd) | O(nd) | O(nd) | O(nd) | O(nd) | O(nd) |
+| Quantum-inspired | No | No | No | No | No | Yes |
+| IoT intrusion-detection setting | Yes | Yes | Yes | Yes | Yes | Yes |
+| Formal detection guarantee | No | No | Partial | Partial | No | Yes |

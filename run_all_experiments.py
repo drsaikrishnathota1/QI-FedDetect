@@ -1,8 +1,8 @@
 """
 run_all_experiments.py — Reproduce all results from the QI-FedDetect paper.
 
-Produces Tables I and II (NSL-KDD and CICIDS2017) and saves raw per-run
-metrics to results/nslkdd_results.csv and results/cicids2017_results.csv.
+Produces the main manuscript tables and saves raw per-run metrics to
+results/nslkdd_results.csv and results/cicids2017_results.csv.
 
 Usage:
     # Full reproduction (all datasets, all methods, 5 seeds each)
@@ -36,7 +36,7 @@ from src.federated import run_federated
 
 logger = get_logger("run_all_experiments")
 
-METHODS  = ["qi_feddetect", "fedavg", "fedprox"]
+METHODS  = ["qi_feddetect", "fltrust", "trimmed_mean", "krum", "fedprox", "fedavg"]
 DATASETS = ["nslkdd", "cicids2017"]
 CONFIG_PATHS = {
     "nslkdd":    "experiments/config_nslkdd.yaml",

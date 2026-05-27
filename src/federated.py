@@ -1,8 +1,11 @@
 """
-federated.py — Federated training loop for QI-FedDetect, FedAvg, and FedProx.
+federated.py — Federated training loop for QI-FedDetect and baselines.
 
-Supports three aggregation methods:
+Supports six aggregation methods:
     'qi_feddetect' — BDM-filtered weighted averaging (proposed method)
+    'fltrust'      — FLTrust-style trust-weighted robust aggregation
+    'trimmed_mean' — Coordinate-wise trimmed mean
+    'krum'         — Krum robust aggregation
     'fedavg'       — Standard weighted averaging (McMahan et al., 2017)
     'fedprox'      — FedAvg + proximal regularisation (Li et al., 2020)
 
@@ -111,11 +114,115 @@ def federated_average(
     honest_ids: List[int],
 ) -> np.ndarray:
     """Weighted average of updates from honest_ids only."""
+    if not honest_ids:
+        honest_ids = list(updates.keys())
     total_w = sum(weights[i] for i in honest_ids)
     agg = np.zeros_like(next(iter(updates.values())))
     for i in honest_ids:
         agg += (weights[i] / total_w) * updates[i]
     return agg
+
+
+def _flag_top_scores(scores: Dict[int, float], n_flag: int, reverse: bool = True) -> List[int]:
+    """Return client IDs with the largest or smallest scores."""
+    if n_flag <= 0:
+        return []
+    ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=reverse)
+    return [client_id for client_id, _ in ordered[:n_flag]]
+
+
+def krum_aggregate(
+    updates: Dict[int, np.ndarray],
+    n_byzantine: int,
+) -> Tuple[np.ndarray, List[int], List[int]]:
+    """Krum aggregation with score-based Byzantine ranking for reporting."""
+    client_ids = sorted(updates.keys())
+    n_clients = len(client_ids)
+    neighbor_count = max(1, n_clients - n_byzantine - 2)
+    scores: Dict[int, float] = {}
+
+    for client_id in client_ids:
+        distances = []
+        for other_id in client_ids:
+            if other_id == client_id:
+                continue
+            diff = updates[client_id] - updates[other_id]
+            distances.append(float(np.dot(diff, diff)))
+        scores[client_id] = float(sum(sorted(distances)[:neighbor_count]))
+
+    selected_id = min(scores, key=scores.get)
+    detected_byz = _flag_top_scores(scores, n_byzantine, reverse=True)
+    return updates[selected_id].copy(), [selected_id], detected_byz
+
+
+def trimmed_mean_aggregate(
+    updates: Dict[int, np.ndarray],
+    n_byzantine: int,
+) -> Tuple[np.ndarray, List[int], List[int]]:
+    """Coordinate-wise trimmed mean with trim-frequency detection reporting."""
+    client_ids = sorted(updates.keys())
+    matrix = np.stack([updates[i] for i in client_ids], axis=0)
+    n_clients = matrix.shape[0]
+    trim = min(n_byzantine, max(0, (n_clients - 1) // 2))
+
+    if trim == 0:
+        return matrix.mean(axis=0), client_ids, []
+
+    order = np.argsort(matrix, axis=0)
+    keep_mask = np.ones_like(matrix, dtype=bool)
+    low = order[:trim, :]
+    high = order[n_clients - trim:, :]
+    cols = np.arange(matrix.shape[1])
+    keep_mask[low, cols] = False
+    keep_mask[high, cols] = False
+
+    trimmed = np.where(keep_mask, matrix, np.nan)
+    agg = np.nanmean(trimmed, axis=0)
+    trim_counts = {
+        client_ids[i]: int((~keep_mask[i]).sum())
+        for i in range(n_clients)
+    }
+    detected_byz = _flag_top_scores(trim_counts, n_byzantine, reverse=True)
+    honest_ids = [i for i in client_ids if i not in detected_byz]
+    return agg, honest_ids, detected_byz
+
+
+def fltrust_aggregate(
+    updates: Dict[int, np.ndarray],
+    n_byzantine: int,
+) -> Tuple[np.ndarray, List[int], List[int]]:
+    """
+    FLTrust-style trust-weighted aggregation.
+
+    The original FLTrust uses a trusted server dataset to derive a reference
+    update. This reproducible benchmark does not ship private server data, so
+    it uses the coordinate-wise median update as a deterministic pseudo-root.
+    """
+    client_ids = sorted(updates.keys())
+    matrix = np.stack([updates[i] for i in client_ids], axis=0)
+    root = np.median(matrix, axis=0)
+    root_norm = np.linalg.norm(root) + 1e-12
+    scores: Dict[int, float] = {}
+    scaled_updates = []
+
+    for client_id in client_ids:
+        update = updates[client_id]
+        norm = np.linalg.norm(update) + 1e-12
+        trust = max(0.0, float(np.dot(update, root) / (norm * root_norm)))
+        scores[client_id] = trust
+        scaled_updates.append(trust * root_norm * update / norm)
+
+    total_trust = sum(scores.values())
+    detected_byz = _flag_top_scores(scores, n_byzantine, reverse=False)
+    honest_ids = [i for i in client_ids if i not in detected_byz]
+
+    if total_trust < 1e-12:
+        return matrix.mean(axis=0), honest_ids, detected_byz
+
+    agg = np.zeros_like(root)
+    for client_id, scaled in zip(client_ids, scaled_updates):
+        agg += (scores[client_id] / total_trust) * scaled
+    return agg, honest_ids, detected_byz
 
 
 # ── Main federated loop ───────────────────────────────────────────────────────
@@ -135,7 +242,8 @@ def run_federated(
     Run a full federated experiment.
 
     Args:
-        method         : 'qi_feddetect', 'fedavg', or 'fedprox'
+        method         : one of qi_feddetect, fltrust, trimmed_mean, krum,
+                         fedavg, or fedprox
         X_train/y_train: full training set (numpy arrays)
         X_test/y_test  : test set
         client_indices : list of index arrays (one per client)
@@ -234,12 +342,28 @@ def run_federated(
                 updates, significance=bdm_alpha
             )
             bdr = byzantine_detection_rate(byzantine_ids, detected_byz)
+            agg_delta = federated_average(updates, weights, honest_ids)
+        elif method == "krum":
+            agg_delta, honest_ids, detected_byz = krum_aggregate(
+                updates, n_byzantine=len(byzantine_ids)
+            )
+            bdr = byzantine_detection_rate(byzantine_ids, detected_byz)
+        elif method == "trimmed_mean":
+            agg_delta, honest_ids, detected_byz = trimmed_mean_aggregate(
+                updates, n_byzantine=len(byzantine_ids)
+            )
+            bdr = byzantine_detection_rate(byzantine_ids, detected_byz)
+        elif method == "fltrust":
+            agg_delta, honest_ids, detected_byz = fltrust_aggregate(
+                updates, n_byzantine=len(byzantine_ids)
+            )
+            bdr = byzantine_detection_rate(byzantine_ids, detected_byz)
         else:
             # FedAvg / FedProx: no Byzantine filtering
             honest_ids = list(range(n_clients))
             bdr = 0.0
+            agg_delta = federated_average(updates, weights, honest_ids)
 
-        agg_delta  = federated_average(updates, weights, honest_ids)
         global_params = global_params + config.get("server_lr", 1.0) * agg_delta
         unflatten_params(global_model, global_params)
 
